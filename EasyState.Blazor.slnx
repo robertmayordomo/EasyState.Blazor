@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="EasyState.Blazor.Tests/EasyState.Blazor.Tests.csproj" />
+  <Project Path="EasyState.Blazor/EasyState.Blazor.csproj" />
+</Solution>
