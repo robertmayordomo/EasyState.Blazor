@@ -27,7 +27,6 @@ jobs:
 
   publish:
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v6
@@ -40,6 +39,6 @@ jobs:
     - name: Build
       run: dotnet build --no-restore -c Release
     - name: Pack
-      run: dotnet pack --no-build -c Release -o ./nupkg EasyState.Blazor/EasyState.Blazor.csproj
+      run: dotnet pack --no-build -c Release EasyState.Blazor/EasyState.Blazor.csproj
     - name: Publish
-      run: dotnet nuget push ./nupkg/*.nupkg -s https://api.nuget.org/v3/index.json -k ${{ secrets.NUGET_API_KEY }}
+      run: dotnet nuget push EasyState.Blazor/bin/Release/*.nupkg -s https://api.nuget.org/v3/index.json -k ${{ secrets.NUGET_API_KEY }}
