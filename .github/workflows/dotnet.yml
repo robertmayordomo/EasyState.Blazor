@@ -44,8 +44,8 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-      - name: Install MinVer
-        run: dotnet tool install --global minver-cli --version 4.3.0
+      - name: Restore tools
+        run: dotnet tool restore
       - name: Get next version
         id: minver
         run: echo "VERSION=$(dotnet minver --auto-increment patch --tag-prefix v)" >> $GITHUB_ENV
