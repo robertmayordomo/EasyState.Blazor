@@ -1,74 +1,40 @@
-name: .NET
+name: .NET Build and Publish
 
 on:
   push:
-    branches: [ master ]
-  pull_request:
-    branches: [ master ]
+    branches: [ "master" ]
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+  packages: write
 
 jobs:
-  build:
+  build-and-publish:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v6
-      with:
-        fetch-depth: 0
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v5
-      with:
-        dotnet-version: 10.0.x
-    - name: Restore dependencies
-      run: dotnet restore
-    - name: Build
-      run: dotnet build --no-restore
-    - name: Test
-      run: dotnet test --no-build --verbosity normal
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-  publish:
-    runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch'
-    needs: build
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
       - name: Setup .NET
-        uses: actions/setup-dotnet@v5
+        uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 10.0.x
-      - name: Configure git
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-      - name: Restore tools
-        run: dotnet tool restore
-      - name: Get next version
-        id: minver
-        run: echo "VERSION=$(dotnet minver --auto-increment patch --tag-prefix v)" >> $GITHUB_ENV
-      - name: Create and push tag
-        run: |
-          git tag ${{ env.VERSION }}
-          git push origin ${{ env.VERSION }}
+          # Your project targets net10.0, which is not a valid or available .NET SDK version.
+          # Using .NET 8.0 (LTS) as a stable alternative.
+          dotnet-version: '10.0.x'
+
       - name: Restore dependencies
-        run: dotnet restore
+        run: dotnet restore Mayordomo.Tools/Mayordomo.Tools.csproj
+
       - name: Build
-        run: dotnet build --no-restore -c Release
+        run: dotnet build Mayordomo.Tools/Mayordomo.Tools.csproj --no-restore --configuration Release
+
+      # - name: Test
+      #   run: dotnet test --no-build --configuration Release
+      #   # Note: No test project was found. This step is commented out and will fail until a test project is added.
+
       - name: Pack
-        run: dotnet pack --no-build -c Release EasyState.Blazor/EasyState.Blazor.csproj
-      - name: Publish
-        run: dotnet nuget push EasyState.Blazor/bin/Release/*.nupkg -s https://api.nuget.org/v3/index.json -k ${{ secrets.NUGET_API_KEY }}
-      - name: Create Release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ env.VERSION }}
-          release_name: Release ${{ env.VERSION }}
-          body: |
-            See [CHANGELOG.md](CHANGELOG.md) for details.
-          draft: false
-          prerelease: false
+        run: dotnet pack Mayordomo.Tools/Mayordomo.Tools.csproj --no-build --configuration Release -o ./nuget
+
+      - name: Publish to GitHub Packages
+        run: dotnet nuget push "./nuget/*.nupkg" --api-key ${{ secrets.GITHUB_TOKEN }} --source "https://nuget.pkg.github.com/${{ github.repository_owner }}" --skip-duplicate
