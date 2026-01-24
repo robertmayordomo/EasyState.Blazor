@@ -9,6 +9,10 @@ public abstract class StateComponentBase : ComponentBase, IDisposable
     [Inject] protected IEventAggregator EventAggregator { get; set; } = default!;
 
     private readonly List<IDisposable> _subscriptions = new();
+    protected void AddDisposable(IDisposable disposable)
+    {
+        _subscriptions.Add(disposable);
+    } 
 
     protected T State<T>() where T : class, new()
     {
@@ -33,6 +37,23 @@ public abstract class StateComponentBase : ComponentBase, IDisposable
             {
                 onStateChanged(state);
                 InvokeAsync(StateHasChanged);
+            });
+
+        _subscriptions.Add(subscription);
+        return subscription;
+    }
+
+    protected IDisposable ObserveState<T>(Func<T, Task> onStateChanged) where T : class, new()
+    {
+        var subscription = AppState.ObserveState<T>()
+            .ObserveOn(SynchronizationContext.Current!)
+            .Subscribe(state =>
+            {
+                InvokeAsync(async () =>
+                {
+                    await onStateChanged(state);
+                    StateHasChanged();
+                });
             });
 
         _subscriptions.Add(subscription);

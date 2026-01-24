@@ -36,6 +36,21 @@ public class AppState : IAppState, IDisposable
         }
     }
 
+    public async Task UpdateState<T>(Func<T, Task> updateAction) where T : class, new()
+    {
+        await _lock.WaitAsync();
+        try
+        {
+            var state = GetState<T>();
+            await updateAction(state);
+            NotifyStateChanged(state);
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
     public IObservable<T> ObserveState<T>() where T : class, new()
     {
         var subject = (BehaviorSubject<T>)_subjects.GetOrAdd(
