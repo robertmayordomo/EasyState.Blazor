@@ -209,4 +209,204 @@ public class AppStateTests : IDisposable
         var state = _appState.GetState<TestState>();
         Assert.NotNull(state);
     }
+
+    [Fact]
+    public async Task UpdateState_AsyncOverload_ModifiesState()
+    {
+        _appState.SetState(new TestState { Name = "Initial", Counter = 0 });
+
+        await _appState.UpdateState<TestState>(async s =>
+        {
+            await Task.Delay(10);
+            s.Name = "Updated Async";
+            s.Counter = 100;
+        });
+
+        var state = _appState.GetState<TestState>();
+        Assert.Equal("Updated Async", state.Name);
+        Assert.Equal(100, state.Counter);
+    }
+
+    [Fact]
+    public async Task UpdateState_AsyncOverload_WhenStateDoesNotExist_CreatesAndModifies()
+    {
+        await _appState.UpdateState<TestState>(async s =>
+        {
+            await Task.Delay(10);
+            s.Name = "Created Async";
+            s.Counter = 50;
+        });
+
+        var state = _appState.GetState<TestState>();
+        Assert.Equal("Created Async", state.Name);
+        Assert.Equal(50, state.Counter);
+    }
+
+    [Fact]
+    public async Task UpdateState_AsyncOverload_IsThreadSafe()
+    {
+        _appState.SetState(new TestState { Counter = 0 });
+        var tasks = new List<Task>();
+
+        for (int i = 0; i < 10; i++)
+        {
+            tasks.Add(_appState.UpdateState<TestState>(async s =>
+            {
+                await Task.Delay(5);
+                s.Counter++;
+            }));
+        }
+
+        await Task.WhenAll(tasks);
+
+        var state = _appState.GetState<TestState>();
+        Assert.Equal(10, state.Counter);
+    }
+
+    [Fact]
+    public async Task ObserveStateChanges_EmitsPropertyChanges()
+    {
+        StateChange<TestState>? receivedChange = null;
+        var observable = _appState.ObserveStateChanges<TestState>();
+        using var subscription = observable.Subscribe(change => receivedChange = change);
+
+        await _appState.UpdateState<TestState>(s =>
+        {
+            s.Name = "NewName";
+            s.Counter = 42;
+        });
+
+        await Task.Delay(50);
+
+        Assert.NotNull(receivedChange);
+        Assert.Equal(2, receivedChange.ChangedProperties.Count);
+        Assert.Contains(receivedChange.ChangedProperties, p => p.PropertyName == nameof(TestState.Name));
+        Assert.Contains(receivedChange.ChangedProperties, p => p.PropertyName == nameof(TestState.Counter));
+    }
+
+    [Fact]
+    public async Task ObserveStateChanges_TracksOldAndNewValues()
+    {
+        await _appState.SetState(new TestState { Name = "OldName", Counter = 10 });
+        StateChange<TestState>? receivedChange = null;
+        var observable = _appState.ObserveStateChanges<TestState>();
+        using var subscription = observable.Subscribe(change => receivedChange = change);
+
+        await _appState.UpdateState<TestState>(s =>
+        {
+            s.Name = "NewName";
+            s.Counter = 20;
+        });
+
+        await Task.Delay(50);
+
+        Assert.NotNull(receivedChange);
+        var nameChange = receivedChange.ChangedProperties.First(p => p.PropertyName == nameof(TestState.Name));
+        var counterChange = receivedChange.ChangedProperties.First(p => p.PropertyName == nameof(TestState.Counter));
+
+        Assert.Equal("OldName", nameChange.OldValue);
+        Assert.Equal("NewName", nameChange.NewValue);
+        Assert.Equal(10, counterChange.OldValue);
+        Assert.Equal(20, counterChange.NewValue);
+    }
+
+    [Fact]
+    public async Task ObserveStateChanges_OnlyEmitsWhenPropertiesChange()
+    {
+        await _appState.SetState(new TestState { Name = "Test", Counter = 5 });
+        var changeCount = 0;
+        var observable = _appState.ObserveStateChanges<TestState>();
+        using var subscription = observable.Subscribe(_ => changeCount++);
+
+        await _appState.UpdateState<TestState>(s =>
+        {
+            s.Name = "Test";
+            s.Counter = 5;
+        });
+
+        await Task.Delay(50);
+
+        Assert.Equal(0, changeCount);
+    }
+
+    [Fact]
+    public async Task ObserveStateChanges_SinglePropertyChange()
+    {
+        await _appState.SetState(new TestState { Name = "Test", Counter = 5 });
+        StateChange<TestState>? receivedChange = null;
+        var observable = _appState.ObserveStateChanges<TestState>();
+        using var subscription = observable.Subscribe(change => receivedChange = change);
+
+        await _appState.UpdateState<TestState>(s => s.Counter = 10);
+
+        await Task.Delay(50);
+
+        Assert.NotNull(receivedChange);
+        Assert.Single(receivedChange.ChangedProperties);
+        Assert.Equal(nameof(TestState.Counter), receivedChange.ChangedProperties[0].PropertyName);
+    }
+
+    [Fact]
+    public async Task ObserveStateChanges_AsyncUpdateState_TracksChanges()
+    {
+        StateChange<TestState>? receivedChange = null;
+        var observable = _appState.ObserveStateChanges<TestState>();
+        using var subscription = observable.Subscribe(change => receivedChange = change);
+
+        await _appState.UpdateState<TestState>(async s =>
+        {
+            await Task.Delay(10);
+            s.Name = "Async Updated";
+            s.Counter = 99;
+        });
+
+        await Task.Delay(50);
+
+        Assert.NotNull(receivedChange);
+        Assert.Equal(2, receivedChange.ChangedProperties.Count);
+    }
+
+    [Fact]
+    public async Task ObserveStateChanges_MultipleSubscribers_AllReceiveChanges()
+    {
+        StateChange<TestState>? change1 = null;
+        StateChange<TestState>? change2 = null;
+        var observable = _appState.ObserveStateChanges<TestState>();
+
+        using var subscription1 = observable.Subscribe(c => change1 = c);
+        using var subscription2 = observable.Subscribe(c => change2 = c);
+
+        await _appState.UpdateState<TestState>(s => s.Name = "Shared");
+
+        await Task.Delay(50);
+
+        Assert.NotNull(change1);
+        Assert.NotNull(change2);
+        Assert.Single(change1.ChangedProperties);
+        Assert.Single(change2.ChangedProperties);
+        Assert.Equal("Shared", change1.State.Name);
+        Assert.Equal("Shared", change2.State.Name);
+    }
+
+    [Fact]
+    public async Task ObserveStateChanges_WithSetState_DoesNotEmit()
+    {
+        var changeCount = 0;
+        var observable = _appState.ObserveStateChanges<TestState>();
+        using var subscription = observable.Subscribe(_ => changeCount++);
+
+        await _appState.SetState(new TestState { Name = "Set", Counter = 1 });
+
+        await Task.Delay(50);
+
+        Assert.Equal(0, changeCount);
+    }
+
+    [Fact]
+    public void ObserveStateChanges_ReturnsObservable()
+    {
+        var observable = _appState.ObserveStateChanges<TestState>();
+
+        Assert.NotNull(observable);
+    }
 }

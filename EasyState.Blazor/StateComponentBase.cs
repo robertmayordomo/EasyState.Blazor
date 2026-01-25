@@ -9,10 +9,6 @@ public abstract class StateComponentBase : ComponentBase, IDisposable
     [Inject] protected IEventAggregator EventAggregator { get; set; } = default!;
 
     private readonly List<IDisposable> _subscriptions = new();
-    protected void AddDisposable(IDisposable disposable)
-    {
-        _subscriptions.Add(disposable);
-    } 
 
     protected T State<T>() where T : class, new()
     {
@@ -47,13 +43,44 @@ public abstract class StateComponentBase : ComponentBase, IDisposable
     {
         var subscription = AppState.ObserveState<T>()
             .ObserveOn(SynchronizationContext.Current!)
-            .Subscribe(state =>
+            .Subscribe(async state =>
             {
-                InvokeAsync(async () =>
+                await onStateChanged(state);
+                await InvokeAsync(StateHasChanged);
+            });
+
+        _subscriptions.Add(subscription);
+        return subscription;
+    }
+
+    protected IDisposable ObserveStateChanges<T>(Func<StateChange<T>, bool> onStateChanged) where T : class, new()
+    {
+        var subscription = AppState.ObserveStateChanges<T>()
+            .ObserveOn(SynchronizationContext.Current!)
+            .Subscribe(stateChange =>
+            {
+                var shouldRefresh = onStateChanged(stateChange);
+                if (shouldRefresh)
                 {
-                    await onStateChanged(state);
-                    StateHasChanged();
-                });
+                    InvokeAsync(StateHasChanged);
+                }
+            });
+
+        _subscriptions.Add(subscription);
+        return subscription;
+    }
+
+    protected IDisposable ObserveStateChanges<T>(Func<StateChange<T>, Task<bool>> onStateChanged) where T : class, new()
+    {
+        var subscription = AppState.ObserveStateChanges<T>()
+            .ObserveOn(SynchronizationContext.Current!)
+            .Subscribe(async stateChange =>
+            {
+                var shouldRefresh = await onStateChanged(stateChange);
+                if (shouldRefresh)
+                {
+                    await InvokeAsync(StateHasChanged);
+                }
             });
 
         _subscriptions.Add(subscription);
