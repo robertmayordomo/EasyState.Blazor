@@ -9,15 +9,25 @@ public abstract class StateComponentBase : ComponentBase, IDisposable
     [Inject] protected IEventAggregator EventAggregator { get; set; } = default!;
 
     private readonly List<IDisposable> _subscriptions = new();
+    protected void AddDisposable(IDisposable disposable)
+    {
+        _subscriptions.Add(disposable);
+    } 
 
     protected T State<T>() where T : class, new()
     {
         return AppState.GetState<T>();
     }
 
-    protected void UpdateState<T>(Action<T> updateAction) where T : class, new()
+    protected Task<StateChange<T>?> UpdateState<T>(Action<T> updateAction) where T : class, new()
     {
-        AppState.UpdateState(updateAction);
+        return AppState.UpdateState(updateAction);
+    }
+
+
+    protected Task<StateChange<T>?> UpdateState<T>(Func<T, Task> updateAction) where T : class, new()
+    {
+        return AppState.UpdateState(updateAction);
     }
 
     protected void SetState<T>(T state) where T : class

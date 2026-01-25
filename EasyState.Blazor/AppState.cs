@@ -1,6 +1,7 @@
 ﻿using System.Collections.Concurrent;
 using System.Reactive.Subjects;
 using System.Reflection;
+using System.Text.Json;
 
 namespace EasyState.Blazor;
 
@@ -10,6 +11,7 @@ public class AppState : IAppState, IDisposable
     private readonly ConcurrentDictionary<Type, object> _subjects = new();
     private readonly ConcurrentDictionary<Type, object> _changeSubjects = new();
     private readonly SemaphoreSlim _lock = new(1, 1);
+    private static readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = false };
 
     public T GetState<T>() where T : class, new()
     {
@@ -23,19 +25,27 @@ public class AppState : IAppState, IDisposable
         return Task.CompletedTask;
     }
 
-    public async Task UpdateState<T>(Action<T> updateAction) where T : class, new()
+    public async Task<StateChange<T>?> UpdateState<T>(Action<T> updateAction) where T : class, new()
     {
         await _lock.WaitAsync();
         try
         {
             var state = GetState<T>();
             var snapshot = CreateSnapshot(state);
-
+            
             updateAction(state);
-
+            
             var changes = DetectChanges(snapshot, state);
             NotifyStateChanged(state);
-            NotifyPropertyChanges(state, changes);
+            
+            if (changes.Count > 0)
+            {
+                var stateChange = new StateChange<T>(state, changes);
+                NotifyPropertyChanges(state, changes);
+                return stateChange;
+            }
+            
+            return null;
         }
         finally
         {
@@ -43,19 +53,27 @@ public class AppState : IAppState, IDisposable
         }
     }
 
-    public async Task UpdateState<T>(Func<T, Task> updateAction) where T : class, new()
+    public async Task<StateChange<T>?> UpdateState<T>(Func<T, Task> updateAction) where T : class, new()
     {
         await _lock.WaitAsync();
         try
         {
             var state = GetState<T>();
             var snapshot = CreateSnapshot(state);
-
+            
             await updateAction(state);
-
+            
             var changes = DetectChanges(snapshot, state);
             NotifyStateChanged(state);
-            NotifyPropertyChanges(state, changes);
+            
+            if (changes.Count > 0)
+            {
+                var stateChange = new StateChange<T>(state, changes);
+                NotifyPropertyChanges(state, changes);
+                return stateChange;
+            }
+            
+            return null;
         }
         finally
         {
@@ -100,21 +118,22 @@ public class AppState : IAppState, IDisposable
         }
     }
 
-    private Dictionary<string, object?> CreateSnapshot<T>(T state) where T : class
+    private Dictionary<string, string> CreateSnapshot<T>(T state) where T : class
     {
-        var snapshot = new Dictionary<string, object?>();
+        var snapshot = new Dictionary<string, string>();
         var properties = typeof(T).GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Where(p => p.CanRead);
 
         foreach (var property in properties)
         {
-            snapshot[property.Name] = property.GetValue(state);
+            var value = property.GetValue(state);
+            snapshot[property.Name] = SerializeValue(value);
         }
 
         return snapshot;
     }
 
-    private List<PropertyChange> DetectChanges<T>(Dictionary<string, object?> snapshot, T state) where T : class
+    private List<PropertyChange> DetectChanges<T>(Dictionary<string, string> snapshot, T state) where T : class
     {
         var changes = new List<PropertyChange>();
         var properties = typeof(T).GetProperties(BindingFlags.Public | BindingFlags.Instance)
@@ -122,16 +141,34 @@ public class AppState : IAppState, IDisposable
 
         foreach (var property in properties)
         {
-            var oldValue = snapshot[property.Name];
+            var oldValueSerialized = snapshot[property.Name];
             var newValue = property.GetValue(state);
+            var newValueSerialized = SerializeValue(newValue);
 
-            if (!Equals(oldValue, newValue))
+            if (oldValueSerialized != newValueSerialized)
             {
+                var oldValue = DeserializeValue(oldValueSerialized, property.PropertyType);
                 changes.Add(new PropertyChange(property.Name, oldValue, newValue));
             }
         }
 
         return changes;
+    }
+
+    private static string SerializeValue(object? value)
+    {
+        if (value == null)
+            return "null";
+
+        return JsonSerializer.Serialize(value, value.GetType(), _jsonOptions);
+    }
+
+    private static object? DeserializeValue(string serialized, Type type)
+    {
+        if (serialized == "null")
+            return null;
+
+        return JsonSerializer.Deserialize(serialized, type, _jsonOptions);
     }
 
     public void Dispose()

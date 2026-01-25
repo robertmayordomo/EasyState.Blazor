@@ -409,4 +409,88 @@ public class AppStateTests : IDisposable
 
         Assert.NotNull(observable);
     }
+
+    [Fact]
+    public async Task UpdateState_ReturnsStateChange_WhenPropertiesChange()
+    {
+        _appState.SetState(new TestState { Name = "Initial", Counter = 5 });
+
+        var result = await _appState.UpdateState<TestState>(s =>
+        {
+            s.Name = "Updated";
+            s.Counter = 10;
+        });
+
+        Assert.NotNull(result);
+        Assert.Equal(2, result.ChangedProperties.Count);
+        Assert.Contains(result.ChangedProperties, p => p.PropertyName == nameof(TestState.Name));
+        Assert.Contains(result.ChangedProperties, p => p.PropertyName == nameof(TestState.Counter));
+    }
+
+    [Fact]
+    public async Task UpdateState_ReturnsNull_WhenNoPropertiesChange()
+    {
+        _appState.SetState(new TestState { Name = "Same", Counter = 5 });
+
+        var result = await _appState.UpdateState<TestState>(s =>
+        {
+            s.Name = "Same";
+            s.Counter = 5;
+        });
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task UpdateState_AsyncOverload_ReturnsStateChange_WhenPropertiesChange()
+    {
+        _appState.SetState(new TestState { Name = "Initial", Counter = 5 });
+
+        var result = await _appState.UpdateState<TestState>(async s =>
+        {
+            await Task.Delay(10);
+            s.Name = "Async Updated";
+            s.Counter = 20;
+        });
+
+        Assert.NotNull(result);
+        Assert.Equal(2, result.ChangedProperties.Count);
+        Assert.Equal("Async Updated", result.State.Name);
+        Assert.Equal(20, result.State.Counter);
+    }
+
+    [Fact]
+    public async Task UpdateState_AsyncOverload_ReturnsNull_WhenNoPropertiesChange()
+    {
+        _appState.SetState(new TestState { Name = "Same", Counter = 5 });
+
+        var result = await _appState.UpdateState<TestState>(async s =>
+        {
+            await Task.Delay(10);
+            // No changes
+        });
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task UpdateState_ReturnedStateChange_ContainsCorrectOldAndNewValues()
+    {
+        _appState.SetState(new TestState { Name = "Old", Counter = 1 });
+
+        var result = await _appState.UpdateState<TestState>(s =>
+        {
+            s.Name = "New";
+            s.Counter = 2;
+        });
+
+        Assert.NotNull(result);
+        var nameChange = result.ChangedProperties.First(p => p.PropertyName == nameof(TestState.Name));
+        var counterChange = result.ChangedProperties.First(p => p.PropertyName == nameof(TestState.Counter));
+
+        Assert.Equal("Old", nameChange.OldValue);
+        Assert.Equal("New", nameChange.NewValue);
+        Assert.Equal(1, counterChange.OldValue);
+        Assert.Equal(2, counterChange.NewValue);
+    }
 }

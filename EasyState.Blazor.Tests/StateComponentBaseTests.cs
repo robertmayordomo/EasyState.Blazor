@@ -43,6 +43,20 @@ public class StateComponentBaseTests : BunitContext
             SetState(new CounterState { Count = value });
         }
 
+        public async Task<StateChange<CounterState>?> UpdateStateAndReturnChange()
+        {
+            return await UpdateState<CounterState>(s => s.Count = 10);
+        }
+
+        public async Task<StateChange<CounterState>?> UpdateStateWithNoChange()
+        {
+            return await UpdateState<CounterState>(s =>
+            {
+                // No change
+                var temp = s.Count;
+            });
+        }
+
         public void PublishTestEvent(string message)
         {
             PublishEvent(new TestEvent { Message = message });
@@ -117,6 +131,32 @@ public class StateComponentBaseTests : BunitContext
         await Task.Delay(50);
 
         Assert.Equal(1, cut.Instance.CurrentState.Count);
+    }
+
+    [Fact]
+    public async Task UpdateState_ReturnsStateChange()
+    {
+        var cut = Render<TestStateComponent>();
+        cut.Instance.SetCounter(5);
+
+        var result = await cut.Instance.UpdateStateAndReturnChange();
+
+        Assert.NotNull(result);
+        Assert.Single(result.ChangedProperties);
+        Assert.Equal(nameof(CounterState.Count), result.ChangedProperties[0].PropertyName);
+        Assert.Equal(5, result.ChangedProperties[0].OldValue);
+        Assert.Equal(10, result.ChangedProperties[0].NewValue);
+    }
+
+    [Fact]
+    public async Task UpdateState_ReturnsNull_WhenNoChanges()
+    {
+        var cut = Render<TestStateComponent>();
+        cut.Instance.SetCounter(5);
+
+        var result = await cut.Instance.UpdateStateWithNoChange();
+
+        Assert.Null(result);
     }
 
     [Fact]
